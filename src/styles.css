@@ -1,0 +1,142 @@
+:root {
+  --accent: #25636f;
+  --accent-strong: #194f59;
+  --accent-soft: #dceff0;
+  --bg: #f6f2ea;
+  --font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: Georgia, "Times New Roman", serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --ink: #262522;
+  --line: #ddd5c7;
+  --line-strong: #c7bba8;
+  --muted: #6d675d;
+  --surface: #fffaf1;
+  --surface-strong: #eee7da;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  scrollbar-gutter: stable;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+textarea,
+input {
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  padding: 12px 14px;
+  width: 100%;
+}
+
+textarea {
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+textarea:focus,
+input:focus,
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid rgba(37, 99, 111, 0.32);
+  outline-offset: 2px;
+}
+
+.page {
+  margin: 0 auto;
+  max-width: 1100px;
+  padding: 38px clamp(16px, 4vw, 24px) 72px;
+}
+
+.page.narrow {
+  max-width: 760px;
+}
+
+.flow {
+  display: grid;
+  gap: 46px;
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.button,
+.icon-button {
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 8px;
+  justify-content: center;
+  min-height: 40px;
+  text-decoration: none;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.button {
+  padding: 0 14px;
+}
+
+.icon-button {
+  height: 38px;
+  padding: 0;
+  width: 38px;
+}
+
+.button:hover,
+.icon-button:hover {
+  background: var(--surface-strong);
+}
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.button.primary:hover {
+  background: var(--accent-strong);
+}
+
+.button.warning {
+  background: #9a3412;
+  border-color: #9a3412;
+  color: white;
+  justify-self: start;
+}
+
+.icon-button.danger {
+  color: #a23737;
+}
