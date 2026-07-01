@@ -10,15 +10,18 @@ export type TimeSignature = {
   measureUnits: number;
 };
 
-export type NoteEvent = {
-  type: 'note';
+export type NotePitch = {
   pitch: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
   accidental?: '#' | 'b' | 'n';
   octave: number;
+  raw: string;
+};
+
+export type NoteEvent = NotePitch & {
+  type: 'note';
   duration: DurationCode;
   beats: number;
   units: number;
-  raw: string;
 };
 
 export type RestEvent = {
@@ -29,7 +32,16 @@ export type RestEvent = {
   raw: string;
 };
 
-export type MusicEvent = NoteEvent | RestEvent;
+export type ChordEvent = {
+  type: 'chord';
+  notes: NotePitch[];
+  duration: DurationCode;
+  beats: number;
+  units: number;
+  raw: string;
+};
+
+export type MusicEvent = NoteEvent | RestEvent | ChordEvent;
 
 export type Measure = {
   index: number;
@@ -74,6 +86,7 @@ export type ValidationError = {
     | 'INVALID_TOKEN'
     | 'INVALID_NOTE'
     | 'INVALID_REST'
+    | 'INVALID_CHORD'
     | 'INVALID_DURATION'
     | 'OCTAVE_OUT_OF_RANGE'
     | 'MEASURE_TOO_SHORT'

@@ -259,7 +259,7 @@ function parseStaffMeasures(
       continue;
     }
 
-    const tokens = inner.split(/\s+/);
+    const tokens = tokenizeMeasure(inner);
     const events = [];
     let totalUnits = 0;
 
@@ -288,4 +288,46 @@ function parseStaffMeasures(
   }
 
   return measures;
+}
+
+function tokenizeMeasure(inner: string): string[] {
+  const tokens: string[] = [];
+  let index = 0;
+
+  while (index < inner.length) {
+    if (/\s/.test(inner[index])) {
+      index += 1;
+      continue;
+    }
+
+    if (inner[index] === '[') {
+      const closeIndex = inner.indexOf(']', index + 1);
+      if (closeIndex === -1) {
+        tokens.push(inner.slice(index).trim());
+        break;
+      }
+
+      let endIndex = closeIndex + 1;
+      if (inner[endIndex] === ':') {
+        endIndex += 1;
+        while (endIndex < inner.length && !/\s/.test(inner[endIndex])) {
+          endIndex += 1;
+        }
+      }
+
+      tokens.push(inner.slice(index, endIndex));
+      index = endIndex;
+      continue;
+    }
+
+    let endIndex = index + 1;
+    while (endIndex < inner.length && !/\s/.test(inner[endIndex])) {
+      endIndex += 1;
+    }
+
+    tokens.push(inner.slice(index, endIndex));
+    index = endIndex;
+  }
+
+  return tokens;
 }

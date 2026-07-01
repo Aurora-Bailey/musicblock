@@ -16,7 +16,7 @@ key: [example: C major, A minor, D dorian]
 time: [4/4, 3/4, 2/4, or 6/8]
 
 treble:
-| C4:q D4:q E4:q G4:q |
+| [C4 E4 G4]:q D4:q E4:q G4:q |
 | A4:h G4:h |
 
 bass:
@@ -37,13 +37,17 @@ pitches are A B C D E F G.
 accidentals are # for sharp, b for flat, and n for natural.
 examples: F#4:q, Bb3:h, Gn4:q.
 octaves must be 0 through 8.
+chords use [note note note]:duration, like [C4 E4 G4]:q.
+all notes in a chord share one duration.
+do not put rests inside chords.
+do not put durations inside chord notes.
+chords must contain 2 to 6 notes.
 durations are:
 w = whole note
 h = half note
 q = quarter note
 e = eighth note
 s = sixteenth note
-do not use chords.
 do not use dotted notes.
 do not use triplets.
 do not use ties.
@@ -69,13 +73,13 @@ key: C minor
 time: 4/4
 
 treble:
-| C4:q Eb4:q G4:q Bb4:q |
-| Ab4:h G4:h |
+| [C4 Eb4 G4]:q Eb4:q G4:q Bb4:q |
+| [Ab4 C5]:h G4:h |
 | F4:q Eb4:q D4:q C4:q |
 | Eb4:w |
 
 bass:
-| C3:h G2:h |
+| [C3 G3]:h G2:h |
 | Ab2:h G2:h |
 | F2:h G2:h |
 | C3:w |

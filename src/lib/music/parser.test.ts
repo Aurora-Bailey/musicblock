@@ -34,6 +34,20 @@ describe('parseMusicBlock', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('imports a valid block with chords', () => {
+    const result = parseMusicBlock(
+      validBlock
+        .replace('C4:q Eb4:q G4:q Bb4:q', '[C4 Eb4 G4]:q Eb4:q G4:q Bb4:q')
+        .replace('C3:h G2:h', '[C3 G3]:h G2:h')
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.score.staves.treble[0].events[0].type).toBe('chord');
+      expect(result.score.staves.treble[0].totalBeats).toBe(4);
+    }
+  });
+
   it('fails without MUSIC_BLOCK v1', () => {
     const result = parseMusicBlock(validBlock.replace('MUSIC_BLOCK v1', 'hello'));
     expectError(result, 'INVALID_HEADER');
@@ -69,9 +83,29 @@ describe('parseMusicBlock', () => {
     expectError(result, 'INVALID_DURATION');
   });
 
+  it('fails with invalid chord duration', () => {
+    const result = parseMusicBlock(validBlock.replace('C4:q', '[C4 E4 G4]:x'));
+    expectError(result, 'INVALID_DURATION');
+  });
+
   it('fails with octave outside 0-8', () => {
     const result = parseMusicBlock(validBlock.replace('C4:q', 'C9:q'));
     expectError(result, 'OCTAVE_OUT_OF_RANGE');
+  });
+
+  it('fails with octave outside 0-8 inside a chord', () => {
+    const result = parseMusicBlock(validBlock.replace('C4:q', '[C4 E9 G4]:q'));
+    expectError(result, 'OCTAVE_OUT_OF_RANGE');
+  });
+
+  it('fails when a chord contains a rest', () => {
+    const result = parseMusicBlock(validBlock.replace('C4:q', '[C4 R G4]:q'));
+    expectError(result, 'INVALID_CHORD');
+  });
+
+  it('fails when a chord has too many notes', () => {
+    const result = parseMusicBlock(validBlock.replace('C4:q', '[C4 D4 E4 F4 G4 A4 B4]:q'));
+    expectError(result, 'INVALID_CHORD');
   });
 
   it('fails with treble/bass measure count mismatch', () => {

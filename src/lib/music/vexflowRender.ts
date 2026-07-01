@@ -151,6 +151,22 @@ function toStaveNote(vf: VexflowModule, event: MusicEvent, staff: StaffName) {
     });
   }
 
+  if (event.type === 'chord') {
+    const chord = new vf.StaveNote({
+      clef,
+      keys: event.notes.map((note) => `${note.pitch.toLowerCase()}/${note.octave}`),
+      duration: durationToVexflow(event.duration)
+    });
+
+    event.notes.forEach((note, index) => {
+      if (note.accidental) {
+        chord.addModifier(new vf.Accidental(note.accidental === 'n' ? 'n' : note.accidental), index);
+      }
+    });
+
+    return chord;
+  }
+
   const note = new vf.StaveNote({
     clef,
     keys: [`${event.pitch.toLowerCase()}/${event.octave}`],
