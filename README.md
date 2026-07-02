@@ -5,6 +5,7 @@ Let your favorite AI agent write you a song.
 Musicblock is a local-first SvelteKit app for importing strict Musicblock music blocks, validating them, saving them in localStorage, and rendering them as treble/bass sheet music.
 
 The music language supports notes, rests, and literal drawable chords such as `[C4 E4 G4]:q`.
+Reader playback uses Tone.js with bundled local piano-like WAV samples, so no audio service is required.
 
 ## Commands
 

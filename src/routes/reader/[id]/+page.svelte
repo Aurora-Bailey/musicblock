@@ -2,16 +2,34 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
+  import PlaybackControls from '$lib/components/PlaybackControls.svelte';
   import ScoreRenderer from '$lib/components/ScoreRenderer.svelte';
+  import { getMeasureStartUnits } from '$lib/music/playback';
   import { getPiece } from '$lib/music/storage';
   import type { SavedPiece } from '$lib/music/types';
 
   let piece: SavedPiece | null = null;
+  let cursorUnits = 0;
+  let selectedMeasure = 1;
+  let beginnerGuide = true;
 
   onMount(() => {
     const id = $page.params.id;
     piece = id ? getPiece(id) : null;
+    cursorUnits = 0;
+    selectedMeasure = 1;
   });
+
+  function updateCursor(nextCursorUnits: number, nextMeasure: number) {
+    cursorUnits = nextCursorUnits;
+    selectedMeasure = nextMeasure;
+  }
+
+  function selectMeasure(measure: number) {
+    if (!piece) return;
+    selectedMeasure = measure;
+    cursorUnits = getMeasureStartUnits(piece.score, measure);
+  }
 </script>
 
 <svelte:head>
@@ -43,7 +61,15 @@
         </div>
       </dl>
     </header>
-    <ScoreRenderer {piece} />
+    <PlaybackControls
+      {piece}
+      {selectedMeasure}
+      {beginnerGuide}
+      onCursorUpdate={updateCursor}
+      onMeasureSelect={selectMeasure}
+      onBeginnerGuideChange={(enabled) => (beginnerGuide = enabled)}
+    />
+    <ScoreRenderer {piece} {cursorUnits} {selectedMeasure} {beginnerGuide} />
   {:else}
     <EmptyState title="Piece not found." body="Return to the library and choose another score." actionHref="/library" actionText="Open library" />
   {/if}
@@ -52,6 +78,7 @@
 <style>
   .reader-page {
     max-width: 1280px;
+    padding-bottom: clamp(170px, 24vh, 260px);
     padding-left: clamp(12px, 2.5vw, 24px);
     padding-right: clamp(12px, 2.5vw, 24px);
   }

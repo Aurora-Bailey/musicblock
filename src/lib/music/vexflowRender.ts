@@ -2,6 +2,25 @@ import type { Measure, MusicEvent, SavedPiece, StaffName } from './types';
 
 type VexflowModule = typeof import('vexflow');
 
+export type ScoreMeasureLayout = {
+  measure: number;
+  systemIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  top: number;
+  bottom: number;
+  startUnits: number;
+  endUnits: number;
+};
+
+export type ScoreLayout = {
+  width: number;
+  height: number;
+  measureUnits: number;
+  measures: ScoreMeasureLayout[];
+};
+
 const STAFF_HEIGHT = 92;
 const SYSTEM_GAP = 54;
 const TOP_MARGIN = 20;
@@ -10,7 +29,7 @@ const RIGHT_MARGIN = 20;
 const MIN_RENDER_WIDTH = 260;
 const MIN_MEASURE_WIDTH = 132;
 
-export async function renderScore(container: HTMLDivElement, piece: SavedPiece): Promise<void> {
+export async function renderScore(container: HTMLDivElement, piece: SavedPiece): Promise<ScoreLayout> {
   container.innerHTML = '';
 
   const vf = await import('vexflow');
@@ -25,6 +44,12 @@ export async function renderScore(container: HTMLDivElement, piece: SavedPiece):
   renderer.resize(width, height);
   const context = renderer.getContext();
   context.setFont('Arial', 10);
+  const layout: ScoreLayout = {
+    width,
+    height,
+    measureUnits: piece.score.time.measureUnits,
+    measures: []
+  };
 
   for (let systemIndex = 0; systemIndex < systems; systemIndex += 1) {
     const firstMeasure = systemIndex * measuresPerSystem;
@@ -38,9 +63,12 @@ export async function renderScore(container: HTMLDivElement, piece: SavedPiece):
       visibleMeasures,
       systemIndex,
       width,
-      y
+      y,
+      layout
     });
   }
+
+  return layout;
 }
 
 function getRenderableWidth(container: HTMLDivElement): number {
@@ -67,7 +95,8 @@ function drawSystem({
   visibleMeasures,
   systemIndex,
   width,
-  y
+  y,
+  layout
 }: {
   vf: VexflowModule;
   context: ReturnType<InstanceType<VexflowModule['Renderer']>['getContext']>;
@@ -77,6 +106,7 @@ function drawSystem({
   systemIndex: number;
   width: number;
   y: number;
+  layout: ScoreLayout;
 }) {
   const hasClef = systemIndex === 0;
   const firstMeasureExtra = hasClef ? 48 : 10;
@@ -94,6 +124,17 @@ function drawSystem({
     const currentMeasureWidth = measureWidth + (offset === 0 ? firstMeasureExtra : 0);
     const trebleStave = new vf.Stave(x, y, currentMeasureWidth);
     const bassStave = new vf.Stave(x, y + STAFF_HEIGHT, currentMeasureWidth);
+    layout.measures.push({
+      measure: measureIndex + 1,
+      systemIndex,
+      x,
+      y,
+      width: currentMeasureWidth,
+      top: y + 4,
+      bottom: y + STAFF_HEIGHT + 74,
+      startUnits: measureIndex * piece.score.time.measureUnits,
+      endUnits: (measureIndex + 1) * piece.score.time.measureUnits
+    });
 
     if (offset === 0 && hasClef) {
       trebleStave.addClef('treble').addTimeSignature(piece.score.time.raw);
