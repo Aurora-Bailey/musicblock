@@ -7,10 +7,13 @@
     getMeasureStartUnits,
     getPlaybackCursorUnits,
     pausePlayback,
+    PLAYBACK_VOICE_OPTIONS,
     playScore,
     resumePlayback,
     setPlaybackVolume,
-    stopPlayback
+    stopPlayback,
+    type PlaybackVoiceId,
+    type StaffVoices
   } from '$lib/music/playback';
   import type { SavedPiece } from '$lib/music/types';
 
@@ -27,6 +30,10 @@
   let errorMessage = '';
   let volume = 0.8;
   let repeatBar = false;
+  let voices: StaffVoices = {
+    treble: 'piano',
+    bass: 'piano'
+  };
   let progressFrame: number | null = null;
 
   async function play(measure = selectedMeasure) {
@@ -46,6 +53,7 @@
     try {
       await playScore(piece.score, {
         volume,
+        voices,
         startMeasure: measure,
         loopMeasure: repeatBar ? measure : undefined,
         onEnded: () => {
@@ -86,6 +94,19 @@
   function changeVolume(event: Event) {
     volume = Number((event.currentTarget as HTMLInputElement).value);
     setPlaybackVolume(volume);
+  }
+
+  function changeVoice(staff: keyof StaffVoices, event: Event) {
+    voices = {
+      ...voices,
+      [staff]: (event.currentTarget as HTMLSelectElement).value as PlaybackVoiceId
+    };
+
+    if (state === 'playing') {
+      stopPlayback();
+      stopProgressLoop();
+      void play(selectedMeasure);
+    }
   }
 
   function showError(error: unknown) {
@@ -200,6 +221,26 @@
     <span>Beginner guide</span>
   </label>
 
+  <div class="voice-settings" aria-label="Voice settings">
+    <label>
+      <span>Treble</span>
+      <select value={voices.treble} on:change={(event) => changeVoice('treble', event)}>
+        {#each PLAYBACK_VOICE_OPTIONS as option}
+          <option value={option.id}>{option.label}</option>
+        {/each}
+      </select>
+    </label>
+
+    <label>
+      <span>Bass</span>
+      <select value={voices.bass} on:change={(event) => changeVoice('bass', event)}>
+        {#each PLAYBACK_VOICE_OPTIONS as option}
+          <option value={option.id}>{option.label}</option>
+        {/each}
+      </select>
+    </label>
+  </div>
+
   <label class="volume">
     <Volume2 size={18} aria-hidden="true" />
     <span>Volume</span>
@@ -242,6 +283,8 @@
 
   .transport,
   .guide-toggle,
+  .voice-settings,
+  .voice-settings label,
   .volume {
     align-items: center;
     display: flex;
@@ -251,6 +294,25 @@
   .guide-toggle {
     color: var(--muted);
     font-weight: 800;
+  }
+
+  .voice-settings {
+    flex-wrap: wrap;
+  }
+
+  .voice-settings label {
+    color: var(--muted);
+    font-weight: 800;
+  }
+
+  .voice-settings select {
+    background: #fffdf8;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    color: var(--ink);
+    font-weight: 700;
+    min-height: 36px;
+    padding: 0 28px 0 10px;
   }
 
   .guide-toggle input {
@@ -293,6 +355,8 @@
     .playback-controls,
     .transport,
     .guide-toggle,
+    .voice-settings,
+    .voice-settings label,
     .volume {
       align-items: stretch;
       width: 100%;
@@ -305,6 +369,16 @@
     .transport {
       display: grid;
       grid-template-columns: 42px 1fr 42px 42px 42px 42px;
+    }
+
+    .voice-settings {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .voice-settings label {
+      flex-direction: column;
+      gap: 4px;
     }
   }
 </style>

@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { parseMusicBlock } from './parser';
 import {
   buildPlaybackTimeline,
+  DEFAULT_STAFF_VOICES,
   getActiveNotesAtUnits,
   getAdjacentMeasure,
   getMeasureEndUnits,
   getMeasureForUnits,
-  getMeasureStartUnits
+  getMeasureStartUnits,
+  PLAYBACK_VOICE_OPTIONS
 } from './playback';
 
 const block = `MUSIC_BLOCK v1
@@ -24,6 +26,21 @@ bass:
 END`;
 
 describe('buildPlaybackTimeline', () => {
+  it('defines independent default voices for both staves', () => {
+    expect(DEFAULT_STAFF_VOICES).toEqual({
+      treble: 'piano',
+      bass: 'piano'
+    });
+    expect(PLAYBACK_VOICE_OPTIONS.map((option) => option.id)).toEqual([
+      'piano',
+      'warm-synth',
+      'bright-synth',
+      'bell',
+      'organ',
+      'soft-bass'
+    ]);
+  });
+
   it('converts notes, rests, chords, and both staves into timed events', () => {
     const result = parseMusicBlock(block);
     expect(result.ok).toBe(true);
