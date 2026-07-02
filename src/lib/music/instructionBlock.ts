@@ -16,12 +16,12 @@ key: [example: C major, A minor, D dorian]
 time: [4/4, 3/4, 2/4, or 6/8]
 
 treble:
-| [C4 E4 G4]:q D4:q E4:q G4:q |
-| A4:h G4:h |
+| mf C4:e. D4:s E4:q G4:q~ G4:q |
+| v1:G4:q A4:q B4:h ; v2:[C4 E4 G4]:h R:h |
 
 bass:
-| C3:h G2:h |
-| F2:h G2:h |
+| p C3:h G2:h |
+| [F2 C3]:h [G2 D3]:h |
 END
 
 Rules:
@@ -48,10 +48,21 @@ h = half note
 q = quarter note
 e = eighth note
 s = sixteenth note
-do not use dotted notes.
+add one dot after a duration for a dotted rhythm, like C4:q. or R:e.
+add ~ after a note or chord duration to tie it to the next same note or chord, like C4:q~ C4:q.
+combine dotted rhythms and ties as Duration.~, like C4:q.~
+ties must connect directly to the same note or chord in the same voice.
+voices inside a measure use v1:, v2:, v3:, or v4: separated by semicolons.
+example: | v1:E5:h D5:h ; v2:[C4 G4]:q [E4 G4]:q [D4 F4]:q R:q |
+if a measure uses voices, every voice clause must fill the full measure.
+do not mix unvoiced notes and v1/v2 syntax in the same measure.
+dynamics are pp, p, mp, mf, f, and ff.
+expression marks are crescendo, diminuendo, legato, staccato, accent, pedal_on, and pedal_off.
+dynamics and expression marks go before the note, chord, or rest they affect.
+example: | p C4:q crescendo D4:q accent E4:q staccato G4:q |
 do not use triplets.
-do not use ties.
 do not use lyrics.
+do not use section labels or repeats.
 do not use inline comments.
 keep the piece simple and readable.
 
@@ -73,14 +84,14 @@ key: C minor
 time: 4/4
 
 treble:
-| [C4 Eb4 G4]:q Eb4:q G4:q Bb4:q |
-| [Ab4 C5]:h G4:h |
-| F4:q Eb4:q D4:q C4:q |
-| Eb4:w |
+| mp C4:e. Eb4:s G4:q Bb4:q~ Bb4:q |
+| v1:Bb4:q Ab4:q G4:h ; v2:[Eb4 G4]:h R:h |
+| crescendo F4:q Eb4:q D4:q C4:q |
+| pedal_on [Eb4 G4 C5]:h pedal_off Eb4:h |
 
 bass:
 | [C3 G3]:h G2:h |
 | Ab2:h G2:h |
 | F2:h G2:h |
-| C3:w |
+| C3:q. R:e [G2 D3]:h |
 END`;

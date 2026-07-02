@@ -1,4 +1,10 @@
-import type { Measure, MusicEvent, SavedPiece, StaffName } from './types';
+import {
+  getMeasureVoices,
+  isDynamicMark,
+  isPlayableEvent,
+  playableEventsMatch
+} from './score';
+import type { ChordEvent, MarkEvent, Measure, MusicEvent, NoteEvent, SavedPiece, StaffName, VoiceId } from './types';
 
 type VexflowModule = typeof import('vexflow');
 
@@ -29,6 +35,18 @@ const RIGHT_MARGIN = 20;
 const MIN_RENDER_WIDTH = 260;
 const MIN_MEASURE_WIDTH = 132;
 
+type VexflowContext = ReturnType<InstanceType<VexflowModule['Renderer']>['getContext']>;
+type VexflowStave = InstanceType<VexflowModule['Stave']>;
+type VexflowStaveNote = InstanceType<VexflowModule['StaveNote']>;
+type RenderedEventNote = {
+  staff: StaffName;
+  voice: VoiceId;
+  measure: number;
+  systemIndex: number;
+  event: NoteEvent | ChordEvent;
+  note: VexflowStaveNote;
+};
+
 export async function renderScore(container: HTMLDivElement, piece: SavedPiece): Promise<ScoreLayout> {
   container.innerHTML = '';
 
@@ -50,6 +68,7 @@ export async function renderScore(container: HTMLDivElement, piece: SavedPiece):
     measureUnits: piece.score.time.measureUnits,
     measures: []
   };
+  const renderedNotes: RenderedEventNote[] = [];
 
   for (let systemIndex = 0; systemIndex < systems; systemIndex += 1) {
     const firstMeasure = systemIndex * measuresPerSystem;
@@ -64,9 +83,12 @@ export async function renderScore(container: HTMLDivElement, piece: SavedPiece):
       systemIndex,
       width,
       y,
-      layout
+      layout,
+      renderedNotes
     });
   }
+
+  drawTies(vf, context, renderedNotes);
 
   return layout;
 }
@@ -96,10 +118,11 @@ function drawSystem({
   systemIndex,
   width,
   y,
-  layout
+  layout,
+  renderedNotes
 }: {
   vf: VexflowModule;
-  context: ReturnType<InstanceType<VexflowModule['Renderer']>['getContext']>;
+  context: VexflowContext;
   piece: SavedPiece;
   firstMeasure: number;
   visibleMeasures: number;
@@ -107,6 +130,7 @@ function drawSystem({
   width: number;
   y: number;
   layout: ScoreLayout;
+  renderedNotes: RenderedEventNote[];
 }) {
   const hasClef = systemIndex === 0;
   const firstMeasureExtra = hasClef ? 48 : 10;
@@ -144,8 +168,8 @@ function drawSystem({
     trebleStave.setContext(context).draw();
     bassStave.setContext(context).draw();
 
-    drawVoice(vf, context, piece.score.staves.treble[measureIndex], trebleStave, 'treble');
-    drawVoice(vf, context, piece.score.staves.bass[measureIndex], bassStave, 'bass');
+    drawMeasureVoices(vf, context, piece.score.staves.treble[measureIndex], trebleStave, 'treble', systemIndex, renderedNotes);
+    drawMeasureVoices(vf, context, piece.score.staves.bass[measureIndex], bassStave, 'bass', systemIndex, renderedNotes);
 
     trebleStaves.push(trebleStave);
     bassStaves.push(bassStave);
@@ -163,32 +187,88 @@ function drawSystem({
   }
 }
 
-function drawVoice(
+function drawMeasureVoices(
   vf: VexflowModule,
-  context: ReturnType<InstanceType<VexflowModule['Renderer']>['getContext']>,
+  context: VexflowContext,
   measure: Measure,
-  stave: InstanceType<VexflowModule['Stave']>,
-  staff: StaffName
+  stave: VexflowStave,
+  staff: StaffName,
+  systemIndex: number,
+  renderedNotes: RenderedEventNote[]
 ) {
-  const notes = measure.events.map((event) => toStaveNote(vf, event, staff));
-  const voice = new vf.Voice({
-    numBeats: measure.totalUnits,
-    beatValue: 16
-  }).setStrict(false);
+  const voices = getMeasureVoices(measure)
+    .map((voiceLine, index) => {
+      const notes = toStaveNotes(vf, voiceLine.events, staff, getStemDirection(vf, voiceLine.id, index));
+      notes.rendered.forEach((rendered) => {
+        renderedNotes.push({
+          staff,
+          voice: voiceLine.id,
+          measure: measure.index,
+          systemIndex,
+          event: rendered.event,
+          note: rendered.note
+        });
+      });
 
-  voice.addTickables(notes);
-  new vf.Formatter().joinVoices([voice]).format([voice], Math.max(stave.getWidth() - 36, 80));
-  voice.draw(context, stave);
+      const voice = new vf.Voice({
+        numBeats: measure.totalUnits,
+        beatValue: 64
+      }).setStrict(false);
+
+      voice.addTickables(notes.notes);
+      return voice;
+    })
+    .filter((voice) => voice.getTickables().length > 0);
+
+  if (voices.length === 0) return;
+
+  new vf.Formatter().joinVoices(voices).format(voices, Math.max(stave.getWidth() - 36, 80));
+  voices.forEach((voice) => voice.draw(context, stave));
 }
 
-function toStaveNote(vf: VexflowModule, event: MusicEvent, staff: StaffName) {
+function toStaveNotes(
+  vf: VexflowModule,
+  events: MusicEvent[],
+  staff: StaffName,
+  stemDirection: number
+): { notes: VexflowStaveNote[]; rendered: Array<{ event: NoteEvent | ChordEvent; note: VexflowStaveNote }> } {
+  const notes: VexflowStaveNote[] = [];
+  const rendered: Array<{ event: NoteEvent | ChordEvent; note: VexflowStaveNote }> = [];
+  const pendingMarks: MarkEvent[] = [];
+
+  for (const event of events) {
+    if (event.type === 'mark') {
+      pendingMarks.push(event);
+      continue;
+    }
+
+    const note = toStaveNote(vf, event, staff, stemDirection);
+    applyPendingMarks(vf, note, pendingMarks);
+    pendingMarks.length = 0;
+    notes.push(note);
+
+    if (isPlayableEvent(event)) {
+      rendered.push({ event, note });
+    }
+  }
+
+  return { notes, rendered };
+}
+
+function toStaveNote(
+  vf: VexflowModule,
+  event: Exclude<MusicEvent, MarkEvent>,
+  staff: StaffName,
+  stemDirection: number
+) {
   const clef = staff === 'treble' ? 'treble' : 'bass';
 
   if (event.type === 'rest') {
     return new vf.StaveNote({
       clef,
       keys: [restKey(staff)],
-      duration: `${durationToVexflow(event.duration)}r`
+      duration: `${durationToVexflow(event)}r`,
+      stemDirection
     });
   }
 
@@ -196,7 +276,8 @@ function toStaveNote(vf: VexflowModule, event: MusicEvent, staff: StaffName) {
     const chord = new vf.StaveNote({
       clef,
       keys: event.notes.map((note) => `${note.pitch.toLowerCase()}/${note.octave}`),
-      duration: durationToVexflow(event.duration)
+      duration: durationToVexflow(event),
+      stemDirection
     });
 
     event.notes.forEach((note, index) => {
@@ -211,7 +292,8 @@ function toStaveNote(vf: VexflowModule, event: MusicEvent, staff: StaffName) {
   const note = new vf.StaveNote({
     clef,
     keys: [`${event.pitch.toLowerCase()}/${event.octave}`],
-    duration: durationToVexflow(event.duration)
+    duration: durationToVexflow(event),
+    stemDirection
   });
 
   if (event.accidental) {
@@ -221,21 +303,136 @@ function toStaveNote(vf: VexflowModule, event: MusicEvent, staff: StaffName) {
   return note;
 }
 
+function getStemDirection(vf: VexflowModule, voice: VoiceId, index: number): number {
+  if (voice === 'v1') return vf.Stem.UP;
+  if (voice === 'v2') return vf.Stem.DOWN;
+  if (voice === 'v3') return vf.Stem.UP;
+  if (voice === 'v4') return vf.Stem.DOWN;
+  return index % 2 === 0 ? vf.Stem.UP : vf.Stem.DOWN;
+}
+
+function applyPendingMarks(vf: VexflowModule, note: VexflowStaveNote, marks: MarkEvent[]) {
+  for (const mark of marks) {
+    if (isDynamicMark(mark.mark)) {
+      note.addModifier(
+        new vf.Annotation(mark.mark)
+          .setJustification(vf.Annotation.HorizontalJustify.CENTER)
+          .setVerticalJustification(vf.Annotation.VerticalJustify.BOTTOM),
+        0
+      );
+      continue;
+    }
+
+    if (mark.mark === 'staccato' || mark.mark === 'accent') {
+      const articulation = new vf.Articulation(mark.mark === 'staccato' ? 'a.' : 'a>');
+      articulation.setPosition(vf.Modifier.Position.ABOVE);
+      note.addModifier(articulation, 0);
+      continue;
+    }
+
+    note.addModifier(
+      new vf.Annotation(formatExpressionMark(mark.mark))
+        .setJustification(vf.Annotation.HorizontalJustify.CENTER)
+        .setVerticalJustification(vf.Annotation.VerticalJustify.TOP),
+      0
+    );
+  }
+}
+
+function drawTies(vf: VexflowModule, context: VexflowContext, renderedNotes: RenderedEventNote[]) {
+  const groups = new Map<string, RenderedEventNote[]>();
+
+  for (const rendered of renderedNotes) {
+    const key = `${rendered.staff}:${rendered.voice}`;
+    groups.set(key, [...(groups.get(key) ?? []), rendered]);
+  }
+
+  for (const group of groups.values()) {
+    group.sort((a, b) => a.measure - b.measure);
+
+    for (let index = 0; index < group.length - 1; index += 1) {
+      const current = group[index];
+      const next = group[index + 1];
+      if (!current.event.tie || !playableEventsMatch(current.event, next.event)) continue;
+
+      const firstIndexes = getTieIndexes(current.event);
+      const lastIndexes = getTieIndexes(next.event);
+
+      if (current.systemIndex === next.systemIndex) {
+        new vf.StaveTie({
+          firstNote: current.note,
+          lastNote: next.note,
+          firstIndexes,
+          lastIndexes
+        })
+          .setContext(context)
+          .draw();
+      } else {
+        new vf.StaveTie({
+          firstNote: current.note,
+          lastNote: null,
+          firstIndexes,
+          lastIndexes: firstIndexes
+        })
+          .setContext(context)
+          .draw();
+        new vf.StaveTie({
+          firstNote: null,
+          lastNote: next.note,
+          firstIndexes: lastIndexes,
+          lastIndexes
+        })
+          .setContext(context)
+          .draw();
+      }
+    }
+  }
+}
+
+function getTieIndexes(event: NoteEvent | ChordEvent): number[] {
+  const count = event.type === 'chord' ? event.notes.length : 1;
+  return Array.from({ length: count }, (_, index) => index);
+}
+
+function formatExpressionMark(mark: MarkEvent['mark']): string {
+  switch (mark) {
+    case 'crescendo':
+      return 'cresc.';
+    case 'diminuendo':
+      return 'dim.';
+    case 'pedal_on':
+      return 'Ped.';
+    case 'pedal_off':
+      return '*';
+    default:
+      return mark;
+  }
+}
+
 function restKey(staff: StaffName): string {
   return staff === 'treble' ? 'b/4' : 'd/3';
 }
 
-function durationToVexflow(duration: MusicEvent['duration']): string {
-  switch (duration) {
+function durationToVexflow(event: Exclude<MusicEvent, MarkEvent>): string {
+  let duration: string;
+
+  switch (event.duration) {
     case 'w':
-      return 'w';
+      duration = 'w';
+      break;
     case 'h':
-      return 'h';
+      duration = 'h';
+      break;
     case 'q':
-      return 'q';
+      duration = 'q';
+      break;
     case 'e':
-      return '8';
+      duration = '8';
+      break;
     case 's':
-      return '16';
+      duration = '16';
+      break;
   }
+
+  return event.dots > 0 ? `${duration}d` : duration;
 }

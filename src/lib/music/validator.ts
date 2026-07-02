@@ -1,18 +1,29 @@
 import { DURATION_UNITS, SUPPORTED_TIME_SIGNATURES } from './constants';
+import {
+  getMeasureVoices,
+  isDynamicMark,
+  isExpressionMark,
+  isPlayableEvent,
+  isTimedEvent,
+  playableEventsMatch
+} from './score';
 import type {
+  ChordEvent,
   DurationCode,
   MusicEvent,
   NotePitch,
   NoteEvent,
+  Score,
   StaffName,
   TimeSignature,
-  ValidationError
+  ValidationError,
+  VoiceId
 } from './types';
 
-const NOTE_TOKEN_PATTERN = /^([A-G])([#bn]?)([0-8]):([whqes])$/;
+const NOTE_TOKEN_PATTERN = /^([A-G])([#bn]?)([0-8]):([whqes])(\.)?(~)?$/;
 const CHORD_NOTE_PATTERN = /^([A-G])([#bn]?)(-?\d+)$/;
-const CHORD_TOKEN_PATTERN = /^\[([^\]]+)\]:([whqes])$/;
-const REST_TOKEN_PATTERN = /^R:([whqes])$/;
+const CHORD_TOKEN_PATTERN = /^\[([^\]]+)\]:([whqes])(\.)?(~)?$/;
+const REST_TOKEN_PATTERN = /^R:([whqes])(\.)?$/;
 const MAX_CHORD_NOTES = 6;
 
 export function parseTimeSignature(raw: string | undefined): TimeSignature | null {
@@ -20,8 +31,9 @@ export function parseTimeSignature(raw: string | undefined): TimeSignature | nul
   return SUPPORTED_TIME_SIGNATURES[raw.trim()] ?? null;
 }
 
-export function durationToUnits(duration: DurationCode): number {
-  return DURATION_UNITS[duration];
+export function durationToUnits(duration: DurationCode, dots = 0): number {
+  const baseUnits = DURATION_UNITS[duration];
+  return dots > 0 ? baseUnits + baseUnits / 2 : baseUnits;
 }
 
 export function unitsToQuarterBeats(units: number): number {
@@ -53,6 +65,19 @@ export function parseEventToken(
     };
   }
 
+  if (isDynamicMark(token) || isExpressionMark(token)) {
+    return {
+      event: {
+        type: 'mark',
+        mark: token,
+        category: isDynamicMark(token) ? 'dynamic' : 'expression',
+        beats: 0,
+        units: 0,
+        raw: token
+      }
+    };
+  }
+
   if (token.startsWith('[')) {
     return parseChordToken(token, line, staff, measure);
   }
@@ -60,11 +85,13 @@ export function parseEventToken(
   const restMatch = token.match(REST_TOKEN_PATTERN);
   if (restMatch) {
     const duration = restMatch[1] as DurationCode;
-    const units = durationToUnits(duration);
+    const dots = restMatch[2] ? 1 : 0;
+    const units = durationToUnits(duration, dots);
     return {
       event: {
         type: 'rest',
         duration,
+        dots,
         beats: unitsToQuarterBeats(units),
         units,
         raw: token
@@ -75,22 +102,25 @@ export function parseEventToken(
   if (token.startsWith('R')) {
     return {
       error: {
-        code: token.includes(':') ? 'INVALID_DURATION' : 'INVALID_REST',
+        code: token.endsWith('~') ? 'INVALID_TIE' : token.includes(':') ? 'INVALID_DURATION' : 'INVALID_REST',
         message: `Invalid rest token "${token}".`,
         line,
         staff,
         measure,
         token,
-        fixHint: 'Use rest syntax like R:q, R:h, or R:e.'
+        fixHint: token.endsWith('~')
+          ? 'Remove the tie marker. Rests cannot be tied.'
+          : 'Use rest syntax like R:q, R:h, R:e, or dotted rest syntax like R:q.'
       }
     };
   }
 
   const noteMatch = token.match(NOTE_TOKEN_PATTERN);
   if (noteMatch) {
-    const [, pitch, accidental, octaveRaw, durationRaw] = noteMatch;
+    const [, pitch, accidental, octaveRaw, durationRaw, dotRaw, tieRaw] = noteMatch;
     const duration = durationRaw as DurationCode;
-    const units = durationToUnits(duration);
+    const dots = dotRaw ? 1 : 0;
+    const units = durationToUnits(duration, dots);
     return {
       event: {
         type: 'note',
@@ -98,14 +128,16 @@ export function parseEventToken(
         accidental: accidental ? (accidental as '#' | 'b' | 'n') : undefined,
         octave: Number(octaveRaw),
         duration,
+        dots,
         beats: unitsToQuarterBeats(units),
         units,
+        tie: tieRaw ? true : undefined,
         raw: token
       }
     };
   }
 
-  if (/^[A-G][#bn]?(-?\d+):[whqes]$/.test(token)) {
+  if (/^[A-G][#bn]?(-?\d+):[whqes]\.?~?$/.test(token)) {
     const octave = Number(token.match(/^[A-G][#bn]?(-?\d+):/)?.[1]);
     if (octave < 0 || octave > 8) {
       return {
@@ -131,7 +163,7 @@ export function parseEventToken(
         staff,
         measure,
         token,
-        fixHint: 'Use one of these duration codes after the colon: w, h, q, e, or s.'
+        fixHint: 'Use one duration code after the colon: w, h, q, e, or s. Add one optional dot before any tie marker, like C4:q. or C4:q.~.'
       }
     };
   }
@@ -160,6 +192,20 @@ export function parseEventToken(
         measure,
         token,
         fixHint: 'Use note syntax like C4:q, F#4:e, or Bb3:h.'
+      }
+    };
+  }
+
+  if (/^[a-z_]+$/.test(token)) {
+    return {
+      error: {
+        code: 'INVALID_MARK',
+        message: `Invalid expression or dynamic mark "${token}".`,
+        line,
+        staff,
+        measure,
+        token,
+        fixHint: 'Use one of: pp, p, mp, mf, f, ff, crescendo, diminuendo, legato, staccato, accent, pedal_on, or pedal_off.'
       }
     };
   }
@@ -199,7 +245,7 @@ function parseChordToken(
     };
   }
 
-  const [, inner, durationRaw] = chordMatch;
+  const [, inner, durationRaw, dotRaw, tieRaw] = chordMatch;
   const noteTokens = inner.trim().split(/\s+/).filter(Boolean);
 
   if (noteTokens.length < 2) {
@@ -287,17 +333,100 @@ function parseChordToken(
   }
 
   const duration = durationRaw as DurationCode;
-  const units = durationToUnits(duration);
+  const dots = dotRaw ? 1 : 0;
+  const units = durationToUnits(duration, dots);
 
   return {
     event: {
       type: 'chord',
       notes,
       duration,
+      dots,
       beats: unitsToQuarterBeats(units),
       units,
+      tie: tieRaw ? true : undefined,
       raw: token
     }
+  };
+}
+
+export function validateTies(score: Score): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  for (const staff of Object.keys(score.staves) as StaffName[]) {
+    const voiceIds = new Set<VoiceId>();
+    for (const measure of score.staves[staff]) {
+      for (const voice of getMeasureVoices(measure)) voiceIds.add(voice.id);
+    }
+
+    for (const voiceId of voiceIds) {
+      const entries = [];
+
+      for (const measure of score.staves[staff]) {
+        const voice = getMeasureVoices(measure).find((entry) => entry.id === voiceId);
+        if (!voice) continue;
+
+        let cursorUnits = (measure.index - 1) * score.time.measureUnits;
+        for (const event of voice.events) {
+          if (event.type === 'mark') continue;
+
+          entries.push({
+            event,
+            startUnits: cursorUnits,
+            line: measure.line,
+            measure: measure.index
+          });
+
+          if (isTimedEvent(event)) cursorUnits += event.units;
+        }
+      }
+
+      for (let index = 0; index < entries.length; index += 1) {
+        const entry = entries[index];
+        const event = entry.event;
+        if (!isPlayableEvent(event) || !event.tie) continue;
+
+        const nextEntry = entries[index + 1];
+        const expectedStart = entry.startUnits + event.units;
+
+        if (!nextEntry) {
+          errors.push(buildTieError(staff, voiceId, entry.measure, entry.line, event.raw, 'Tie markers must connect to a following note or chord.', 'Add the matching tied note or remove the trailing ~ marker.'));
+          continue;
+        }
+
+        if (nextEntry.startUnits !== expectedStart || !isPlayableEvent(nextEntry.event)) {
+          errors.push(buildTieError(staff, voiceId, entry.measure, entry.line, event.raw, 'Tie markers must connect directly to the next note or chord in the same voice.', 'Remove any rest or gap between tied notes, or remove the ~ marker.'));
+          continue;
+        }
+
+        if (!playableEventsMatch(event, nextEntry.event)) {
+          errors.push(buildTieError(staff, voiceId, entry.measure, entry.line, event.raw, `Tie from "${event.raw}" does not connect to the same pitch content.`, 'Change the next tied event so it has exactly the same note or chord pitches, or remove the ~ marker.'));
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
+function buildTieError(
+  staff: StaffName,
+  voice: VoiceId,
+  measure: number,
+  line: number | undefined,
+  token: string,
+  message: string,
+  fixHint: string
+): ValidationError {
+  return {
+    code: 'INVALID_TIE',
+    message,
+    line,
+    staff,
+    measure,
+    voice,
+    token,
+    fixHint
   };
 }
 
@@ -306,7 +435,8 @@ export function validateMeasureLength(
   time: TimeSignature,
   staff: StaffName,
   measure: number,
-  line?: number
+  line?: number,
+  voice?: VoiceId
 ): ValidationError | null {
   if (totalUnits === time.measureUnits) return null;
 
@@ -320,7 +450,8 @@ export function validateMeasureLength(
       line,
       staff,
       measure,
-      fixHint: `Add notes or rests to ${staff} measure ${measure} so it equals exactly ${expected} quarter beats.`
+      voice,
+      fixHint: `Add notes or rests to ${staff} measure ${measure}${voice && voice !== 'default' ? ` ${voice}` : ''} so it equals exactly ${expected} quarter beats.`
     };
   }
 
@@ -330,6 +461,7 @@ export function validateMeasureLength(
     line,
     staff,
     measure,
-    fixHint: `Shorten ${staff} measure ${measure} so it equals exactly ${expected} quarter beats.`
+    voice,
+    fixHint: `Shorten ${staff} measure ${measure}${voice && voice !== 'default' ? ` ${voice}` : ''} so it equals exactly ${expected} quarter beats.`
   };
 }

@@ -2,6 +2,21 @@ export type StaffName = 'treble' | 'bass';
 
 export type DurationCode = 'w' | 'h' | 'q' | 'e' | 's';
 
+export type DynamicMark = 'pp' | 'p' | 'mp' | 'mf' | 'f' | 'ff';
+
+export type ExpressionMark =
+  | 'crescendo'
+  | 'diminuendo'
+  | 'legato'
+  | 'staccato'
+  | 'accent'
+  | 'pedal_on'
+  | 'pedal_off';
+
+export type MusicMark = DynamicMark | ExpressionMark;
+
+export type VoiceId = 'default' | `v${number}`;
+
 export type TimeSignature = {
   raw: string;
   beatsPerMeasure: number;
@@ -20,13 +35,16 @@ export type NotePitch = {
 export type NoteEvent = NotePitch & {
   type: 'note';
   duration: DurationCode;
+  dots: number;
   beats: number;
   units: number;
+  tie?: boolean;
 };
 
 export type RestEvent = {
   type: 'rest';
   duration: DurationCode;
+  dots: number;
   beats: number;
   units: number;
   raw: string;
@@ -36,16 +54,35 @@ export type ChordEvent = {
   type: 'chord';
   notes: NotePitch[];
   duration: DurationCode;
+  dots: number;
   beats: number;
   units: number;
+  tie?: boolean;
   raw: string;
 };
 
-export type MusicEvent = NoteEvent | RestEvent | ChordEvent;
+export type MarkEvent = {
+  type: 'mark';
+  mark: MusicMark;
+  category: 'dynamic' | 'expression';
+  beats: 0;
+  units: 0;
+  raw: string;
+};
+
+export type MusicEvent = NoteEvent | RestEvent | ChordEvent | MarkEvent;
+
+export type VoiceLine = {
+  id: VoiceId;
+  events: MusicEvent[];
+  totalBeats: number;
+  totalUnits: number;
+};
 
 export type Measure = {
   index: number;
   events: MusicEvent[];
+  voices: VoiceLine[];
   totalBeats: number;
   totalUnits: number;
   line?: number;
@@ -88,6 +125,9 @@ export type ValidationError = {
     | 'INVALID_REST'
     | 'INVALID_CHORD'
     | 'INVALID_DURATION'
+    | 'INVALID_TIE'
+    | 'INVALID_VOICE'
+    | 'INVALID_MARK'
     | 'OCTAVE_OUT_OF_RANGE'
     | 'MEASURE_TOO_SHORT'
     | 'MEASURE_TOO_LONG'
@@ -98,6 +138,7 @@ export type ValidationError = {
   line?: number;
   staff?: StaffName;
   measure?: number;
+  voice?: VoiceId;
   token?: string;
   fixHint: string;
 };

@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { LEGACY_STORAGE_KEYS, STORAGE_KEY } from './constants';
+import { parseMusicBlock } from './parser';
 import type { SavedPiece } from './types';
 import { createId } from '$lib/utils/ids';
 
@@ -12,11 +13,56 @@ export function getPieces(): SavedPiece[] {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isSavedPiece);
+    return parsed.filter(isSavedPiece).map(hydrateSavedPiece).filter((piece): piece is SavedPiece => Boolean(piece));
   } catch (error) {
     console.warn('Could not parse saved Musicblock pieces.', error);
     return [];
   }
+}
+
+function hydrateSavedPiece(piece: SavedPiece): SavedPiece | null {
+  if (!needsHydration(piece)) return piece;
+
+  const parsed = parseMusicBlock(piece.sourceText);
+  if (!parsed.ok) return hasRenderableScore(piece) ? piece : null;
+
+  return {
+    ...piece,
+    composer: piece.composer ?? parsed.score.composer,
+    score: {
+      ...parsed.score,
+      title: piece.title
+    }
+  };
+}
+
+function needsHydration(piece: SavedPiece): boolean {
+  const firstTrebleMeasure = piece.score?.staves?.treble?.[0];
+  if (!firstTrebleMeasure) return true;
+  if (!Array.isArray(firstTrebleMeasure.voices)) return true;
+
+  const rawTime = piece.score?.time?.raw;
+  if (!rawTime) return true;
+
+  const expectedMeasureUnits = rawTime === '4/4'
+    ? 64
+    : rawTime === '3/4'
+      ? 48
+      : rawTime === '2/4'
+        ? 32
+        : rawTime === '6/8'
+          ? 48
+          : null;
+
+  return expectedMeasureUnits !== null && piece.score.time.measureUnits !== expectedMeasureUnits;
+}
+
+function hasRenderableScore(piece: SavedPiece): boolean {
+  return Boolean(
+    piece.score?.time
+    && Array.isArray(piece.score?.staves?.treble)
+    && Array.isArray(piece.score?.staves?.bass)
+  );
 }
 
 export function savePieces(pieces: SavedPiece[]): void {

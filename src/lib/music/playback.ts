@@ -1,4 +1,6 @@
-import type { MusicEvent, NotePitch, Score, StaffName } from './types';
+import { DURATION_UNITS } from './constants';
+import { getMeasureVoices, isDynamicMark, isPlayableEvent, playableEventsMatch } from './score';
+import type { MusicEvent, NotePitch, Score, StaffName, VoiceId } from './types';
 
 type ToneModule = typeof import('tone');
 type ToneSampler = import('tone').Sampler;
@@ -36,8 +38,10 @@ export type PlaybackEvent = {
   durationSeconds: number;
   startUnits: number;
   durationUnits: number;
+  velocity: number;
   staff: StaffName;
   measure: number;
+  voice: VoiceId;
 };
 
 export type PlaybackTimeline = {
@@ -54,6 +58,23 @@ export type NoteLabelItem = {
 export type ActiveGuideNotes = {
   treble: NoteLabelItem[];
   bass: NoteLabelItem[];
+};
+
+type PlayableMusicEvent = Extract<MusicEvent, { type: 'note' | 'chord' }>;
+
+type VoicePlaybackState = {
+  velocity: number;
+  nextDurationScale: number;
+  nextVelocityMultiplier: number;
+};
+
+type TimedPlaybackEntry = {
+  event: PlayableMusicEvent;
+  startUnits: number;
+  measure: number;
+  voice: VoiceId;
+  velocity: number;
+  durationScale: number;
 };
 
 export type PlayScoreOptions = {
@@ -95,6 +116,15 @@ const PIANO_SAMPLE_URLS = {
   C6: 'C6.wav'
 };
 
+const DYNAMIC_VELOCITY = {
+  pp: 0.36,
+  p: 0.48,
+  mp: 0.64,
+  mf: 0.78,
+  f: 0.9,
+  ff: 1
+};
+
 let toneModule: ToneModule | null = null;
 let sampler: ToneSampler | null = null;
 let instruments = new Map<PlaybackVoiceId, PlaybackInstrument>();
@@ -104,7 +134,7 @@ let scheduledEventIds: number[] = [];
 let endedCallback: (() => void) | null = null;
 
 export function buildPlaybackTimeline(score: Score): PlaybackTimeline {
-  const secondsPerUnit = 60 / score.tempo / 4;
+  const secondsPerUnit = 60 / score.tempo / DURATION_UNITS.q;
   const events: PlaybackEvent[] = [];
 
   addStaffEvents(score, 'treble', secondsPerUnit, events);
@@ -148,7 +178,7 @@ export async function playScore(
   for (const event of timeline.events) {
     const instrument = activeInstruments[event.staff];
     const id = transport.schedule((time) => {
-      instrument.triggerAttackRelease(event.notes, event.durationSeconds, time, 0.82);
+      instrument.triggerAttackRelease(event.notes, event.durationSeconds, time, event.velocity);
     }, event.startSeconds);
     scheduledEventIds.push(id);
   }
@@ -256,44 +286,127 @@ function addStaffEvents(
   secondsPerUnit: number,
   events: PlaybackEvent[]
 ) {
+  const entries: TimedPlaybackEntry[] = [];
+  const voiceStates = new Map<VoiceId, VoicePlaybackState>();
+
   for (const measure of score.staves[staff]) {
-    let cursorUnits = (measure.index - 1) * score.time.measureUnits;
+    for (const voice of getMeasureVoices(measure)) {
+      let cursorUnits = (measure.index - 1) * score.time.measureUnits;
+      const state = voiceStates.get(voice.id) ?? {
+        velocity: DYNAMIC_VELOCITY.mf,
+        nextDurationScale: 1,
+        nextVelocityMultiplier: 1
+      };
 
-    for (const event of measure.events) {
-      const notes = eventToNotes(event);
+      for (const event of voice.events) {
+        if (event.type === 'mark') {
+          if (isDynamicMark(event.mark)) {
+            state.velocity = DYNAMIC_VELOCITY[event.mark];
+          } else if (event.mark === 'staccato') {
+            state.nextDurationScale = 0.52;
+          } else if (event.mark === 'accent') {
+            state.nextVelocityMultiplier = 1.16;
+          } else if (event.mark === 'legato') {
+            state.nextDurationScale = 1.04;
+          }
+          continue;
+        }
 
-      if (notes.length > 0) {
-        events.push({
-          notes,
-          noteLabels: eventToNoteLabels(event),
-          startSeconds: cursorUnits * secondsPerUnit,
-          durationSeconds: event.units * secondsPerUnit,
-          startUnits: cursorUnits,
-          durationUnits: event.units,
-          staff,
-          measure: measure.index
-        });
+        if (isPlayableEvent(event)) {
+          entries.push({
+            event,
+            startUnits: cursorUnits,
+            measure: measure.index,
+            voice: voice.id,
+            velocity: Math.max(0.1, Math.min(1, state.velocity * state.nextVelocityMultiplier)),
+            durationScale: state.nextDurationScale
+          });
+          state.nextDurationScale = 1;
+          state.nextVelocityMultiplier = 1;
+        }
+
+        cursorUnits += event.units;
       }
 
-      cursorUnits += event.units;
+      voiceStates.set(voice.id, state);
     }
+  }
+
+  entries.sort(
+    (a, b) =>
+      a.startUnits - b.startUnits
+      || a.voice.localeCompare(b.voice)
+      || eventPitchSortKey(a.event).localeCompare(eventPitchSortKey(b.event))
+  );
+
+  const consumed = new Set<number>();
+  for (let index = 0; index < entries.length; index += 1) {
+    if (consumed.has(index)) continue;
+
+    const entry = entries[index];
+    let durationUnits = entry.event.units;
+    let chainIndex = index;
+
+    while (entryCanTieTo(entries[chainIndex], entries[chainIndex + 1])) {
+      consumed.add(chainIndex + 1);
+      durationUnits += entries[chainIndex + 1].event.units;
+      chainIndex += 1;
+    }
+
+    const durationScale = chainIndex === index ? entry.durationScale : 1;
+    events.push({
+      notes: eventToNotes(entry.event),
+      noteLabels: eventToNoteLabels(entry.event),
+      startSeconds: entry.startUnits * secondsPerUnit,
+      durationSeconds: durationUnits * secondsPerUnit * durationScale,
+      startUnits: entry.startUnits,
+      durationUnits,
+      velocity: entry.velocity,
+      staff,
+      measure: entry.measure,
+      voice: entry.voice
+    });
   }
 }
 
 function eventToNotes(event: MusicEvent): string[] {
-  if (event.type === 'rest') return [];
+  if (event.type === 'rest' || event.type === 'mark') return [];
   if (event.type === 'chord') return event.notes.map(pitchToToneNote);
   return [pitchToToneNote(event)];
 }
 
 function eventToNoteLabels(event: MusicEvent): NoteLabelItem[] {
-  if (event.type === 'rest') return [];
+  if (event.type === 'rest' || event.type === 'mark') return [];
 
   const notes = event.type === 'chord' ? event.notes : [event];
   return notes.map((note) => ({
     letter: note.pitch,
     isBlackKey: note.accidental === '#' || note.accidental === 'b'
   }));
+}
+
+function entryCanTieTo(
+  entry: {
+    event: PlayableMusicEvent;
+    startUnits: number;
+    voice: VoiceId;
+  } | undefined,
+  nextEntry: {
+    event: PlayableMusicEvent;
+    startUnits: number;
+    voice: VoiceId;
+  } | undefined
+): boolean {
+  if (!entry || !nextEntry || !entry.event.tie) return false;
+  if (entry.voice !== nextEntry.voice) return false;
+  if (nextEntry.startUnits !== entry.startUnits + entry.event.units) return false;
+
+  return playableEventsMatch(entry.event, nextEntry.event);
+}
+
+function eventPitchSortKey(event: PlayableMusicEvent): string {
+  if (event.type === 'note') return pitchToToneNote(event);
+  return event.notes.map(pitchToToneNote).join(',');
 }
 
 function pitchToToneNote(note: NotePitch): string {

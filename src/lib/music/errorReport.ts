@@ -6,6 +6,7 @@ export function buildAgentRepairPrompt(sourceText: string, errors: ValidationErr
       const location = [
         error.staff ? `${error.staff}` : '',
         error.measure ? `measure ${error.measure}` : '',
+        error.voice && error.voice !== 'default' ? `${error.voice}` : '',
         error.line ? `line ${error.line}` : '',
         error.token ? `token "${error.token}"` : ''
       ]

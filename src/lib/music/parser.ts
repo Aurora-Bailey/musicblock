@@ -3,15 +3,19 @@ import {
   parseEventToken,
   parseTimeSignature,
   unitsToQuarterBeats,
-  validateMeasureLength
+  validateMeasureLength,
+  validateTies
 } from './validator';
 import type {
   Measure,
+  MusicEvent,
   ParseResult,
   Score,
   StaffName,
   ValidationError,
-  ValidationWarning
+  ValidationWarning,
+  VoiceId,
+  VoiceLine
 } from './types';
 
 type SourceLine = {
@@ -165,8 +169,7 @@ export function parseMusicBlock(sourceText: string): ParseResult {
     bass: parseStaffMeasures(staffRaw.bass, 'bass', time, errors)
   };
 
-  const totalEvents = staves.treble.reduce((sum, measure) => sum + measure.events.length, 0)
-    + staves.bass.reduce((sum, measure) => sum + measure.events.length, 0);
+  const totalEvents = countMusicEvents(staves.treble) + countMusicEvents(staves.bass);
 
   if (totalEvents === 0) {
     errors.push({
@@ -184,10 +187,6 @@ export function parseMusicBlock(sourceText: string): ParseResult {
     });
   }
 
-  if (errors.length > 0) {
-    return { ok: false, errors };
-  }
-
   const score: Score = {
     version: '1',
     title: fields.title,
@@ -197,6 +196,12 @@ export function parseMusicBlock(sourceText: string): ParseResult {
     time,
     staves
   };
+
+  errors.push(...validateTies(score));
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
 
   return { ok: true, score, warnings };
 }
@@ -252,6 +257,7 @@ function parseStaffMeasures(
       measures.push({
         index,
         events: [],
+        voices: [],
         totalBeats: 0,
         totalUnits: 0,
         line: line.number
@@ -259,28 +265,14 @@ function parseStaffMeasures(
       continue;
     }
 
-    const tokens = tokenizeMeasure(inner);
-    const events = [];
-    let totalUnits = 0;
-
-    for (const token of tokens) {
-      const parsed = parseEventToken(token, line.number, staff, index);
-      if (parsed.error) {
-        errors.push(parsed.error);
-        continue;
-      }
-      if (parsed.event) {
-        events.push(parsed.event);
-        totalUnits += parsed.event.units;
-      }
-    }
-
-    const lengthError = validateMeasureLength(totalUnits, time, staff, index, line.number);
-    if (lengthError) errors.push(lengthError);
+    const voices = parseMeasureVoices(inner, line.number, staff, index, time, errors);
+    const events = voices.flatMap((voice) => voice.events);
+    const totalUnits = voices.length > 0 ? Math.max(...voices.map((voice) => voice.totalUnits)) : 0;
 
     measures.push({
       index,
       events,
+      voices,
       totalBeats: unitsToQuarterBeats(totalUnits),
       totalUnits,
       line: line.number
@@ -288,6 +280,147 @@ function parseStaffMeasures(
   }
 
   return measures;
+}
+
+function parseMeasureVoices(
+  inner: string,
+  line: number,
+  staff: StaffName,
+  measure: number,
+  time: NonNullable<ReturnType<typeof parseTimeSignature>>,
+  errors: ValidationError[]
+): VoiceLine[] {
+  const voiceClauses = splitVoiceClauses(inner);
+  const hasVoiceSyntax = voiceClauses.some((clause) => /^v\d+:/.test(clause));
+
+  if (!hasVoiceSyntax) {
+    const voice = parseVoiceEvents('default', inner, line, staff, measure, errors);
+    const lengthError = validateMeasureLength(voice.totalUnits, time, staff, measure, line, voice.id);
+    if (lengthError) errors.push(lengthError);
+    return [voice];
+  }
+
+  const voices: VoiceLine[] = [];
+  const seen = new Set<VoiceId>();
+
+  for (const clause of voiceClauses) {
+    const voiceMatch = clause.match(/^(v\d+):\s*(.+)$/);
+
+    if (!voiceMatch) {
+      errors.push({
+        code: 'INVALID_VOICE',
+        message: `${staff} measure ${measure} mixes voiced and unvoiced syntax.`,
+        line,
+        staff,
+        measure,
+        fixHint: 'When a measure uses voices, every clause must start with v1:, v2:, v3:, or v4:.'
+      });
+      continue;
+    }
+
+    const [, rawVoiceId, voiceContent] = voiceMatch;
+    if (!/^v[1-4]$/.test(rawVoiceId)) {
+      errors.push({
+        code: 'INVALID_VOICE',
+        message: `Invalid voice id "${rawVoiceId}" in ${staff} measure ${measure}.`,
+        line,
+        staff,
+        measure,
+        token: rawVoiceId,
+        fixHint: 'Use voice ids v1, v2, v3, or v4.'
+      });
+      continue;
+    }
+
+    const voiceId = rawVoiceId as VoiceId;
+    if (seen.has(voiceId)) {
+      errors.push({
+        code: 'INVALID_VOICE',
+        message: `${staff} measure ${measure} uses ${voiceId} more than once.`,
+        line,
+        staff,
+        measure,
+        voice: voiceId,
+        fixHint: `Merge the duplicated ${voiceId} clauses into one voice clause.`
+      });
+      continue;
+    }
+
+    seen.add(voiceId);
+    const voice = parseVoiceEvents(voiceId, voiceContent, line, staff, measure, errors);
+    const lengthError = validateMeasureLength(voice.totalUnits, time, staff, measure, line, voice.id);
+    if (lengthError) errors.push(lengthError);
+    voices.push(voice);
+  }
+
+  if (voices.length === 0) {
+    errors.push({
+      code: 'EMPTY_MEASURE',
+      message: `${staff} measure ${measure} has no valid voice content.`,
+      line,
+      staff,
+      measure,
+      fixHint: `Add at least one complete voice to ${staff} measure ${measure}.`
+    });
+  }
+
+  return voices;
+}
+
+function parseVoiceEvents(
+  id: VoiceId,
+  source: string,
+  line: number,
+  staff: StaffName,
+  measure: number,
+  errors: ValidationError[]
+): VoiceLine {
+  const tokens = tokenizeMeasure(source);
+  const events: MusicEvent[] = [];
+  let totalUnits = 0;
+
+  for (const token of tokens) {
+    const parsed = parseEventToken(token, line, staff, measure);
+    if (parsed.error) {
+      errors.push({
+        ...parsed.error,
+        voice: id === 'default' ? parsed.error.voice : id
+      });
+      continue;
+    }
+    if (parsed.event) {
+      events.push(parsed.event);
+      totalUnits += parsed.event.units;
+    }
+  }
+
+  return {
+    id,
+    events,
+    totalBeats: unitsToQuarterBeats(totalUnits),
+    totalUnits
+  };
+}
+
+function splitVoiceClauses(inner: string): string[] {
+  const clauses: string[] = [];
+  let start = 0;
+  let bracketDepth = 0;
+
+  for (let index = 0; index < inner.length; index += 1) {
+    const char = inner[index];
+
+    if (char === '[') bracketDepth += 1;
+    if (char === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+
+    if (char === ';' && bracketDepth === 0) {
+      clauses.push(inner.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+
+  clauses.push(inner.slice(start).trim());
+  return clauses.filter(Boolean);
 }
 
 function tokenizeMeasure(inner: string): string[] {
@@ -330,4 +463,16 @@ function tokenizeMeasure(inner: string): string[] {
   }
 
   return tokens;
+}
+
+function countMusicEvents(measures: Measure[]): number {
+  return measures.reduce(
+    (sum, measure) =>
+      sum
+      + measure.voices.reduce(
+        (voiceSum, voice) => voiceSum + voice.events.filter((event) => event.type !== 'mark').length,
+        0
+      ),
+    0
+  );
 }
