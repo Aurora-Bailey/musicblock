@@ -17,6 +17,8 @@ export type MusicMark = DynamicMark | ExpressionMark;
 
 export type VoiceId = 'default' | `v${number}`;
 
+export type StarRatingValue = 1 | 2 | 3 | 4 | 5;
+
 export type TimeSignature = {
   raw: string;
   beatsPerMeasure: number;
@@ -105,6 +107,7 @@ export type SavedPiece = {
   id: string;
   title: string;
   composer?: string;
+  rating?: StarRatingValue;
   createdAt: string;
   updatedAt: string;
   sourceText: string;

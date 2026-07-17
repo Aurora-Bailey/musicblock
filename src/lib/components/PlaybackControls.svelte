@@ -15,14 +15,17 @@
     type PlaybackVoiceId,
     type StaffVoices
   } from '$lib/music/playback';
-  import type { SavedPiece } from '$lib/music/types';
+  import type { SavedPiece, StarRatingValue } from '$lib/music/types';
+  import StarRating from './StarRating.svelte';
 
   export let piece: SavedPiece;
   export let selectedMeasure = 1;
   export let beginnerGuide = true;
+  export let rating: StarRatingValue | undefined = undefined;
   export let onCursorUpdate: (cursorUnits: number, selectedMeasure: number) => void = () => {};
   export let onMeasureSelect: (measure: number) => void = () => {};
   export let onBeginnerGuideChange: (enabled: boolean) => void = () => {};
+  export let onRatingChange: (rating: StarRatingValue) => void = () => {};
 
   type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused' | 'error';
 
@@ -221,6 +224,11 @@
     <span>Beginner guide</span>
   </label>
 
+  <div class="rating-control" aria-label="Piece rating">
+    <span>Rating</span>
+    <StarRating {rating} interactive label="Piece rating" onRate={onRatingChange} />
+  </div>
+
   <div class="voice-settings" aria-label="Voice settings">
     <label>
       <span>Treble</span>
@@ -283,6 +291,7 @@
 
   .transport,
   .guide-toggle,
+  .rating-control,
   .voice-settings,
   .voice-settings label,
   .volume {
@@ -292,6 +301,11 @@
   }
 
   .guide-toggle {
+    color: var(--muted);
+    font-weight: 800;
+  }
+
+  .rating-control {
     color: var(--muted);
     font-weight: 800;
   }
@@ -355,6 +369,7 @@
     .playback-controls,
     .transport,
     .guide-toggle,
+    .rating-control,
     .voice-settings,
     .voice-settings label,
     .volume {

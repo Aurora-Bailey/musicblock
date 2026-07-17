@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 import { LEGACY_STORAGE_KEYS, STORAGE_KEY } from './constants';
 import { parseMusicBlock } from './parser';
-import type { SavedPiece } from './types';
+import type { SavedPiece, StarRatingValue } from './types';
 import { createId } from '$lib/utils/ids';
 
 export function getPieces(): SavedPiece[] {
@@ -21,18 +21,29 @@ export function getPieces(): SavedPiece[] {
 }
 
 function hydrateSavedPiece(piece: SavedPiece): SavedPiece | null {
-  if (!needsHydration(piece)) return piece;
+  const normalized = normalizeSavedPiece(piece);
 
-  const parsed = parseMusicBlock(piece.sourceText);
-  if (!parsed.ok) return hasRenderableScore(piece) ? piece : null;
+  if (!needsHydration(normalized)) return normalized;
+
+  const parsed = parseMusicBlock(normalized.sourceText);
+  if (!parsed.ok) return hasRenderableScore(normalized) ? normalized : null;
+
+  return {
+    ...normalized,
+    composer: normalized.composer ?? parsed.score.composer,
+    score: {
+      ...parsed.score,
+      title: normalized.title
+    }
+  };
+}
+
+function normalizeSavedPiece(piece: SavedPiece): SavedPiece {
+  const rating = normalizeRating((piece as Partial<SavedPiece>).rating);
 
   return {
     ...piece,
-    composer: piece.composer ?? parsed.score.composer,
-    score: {
-      ...parsed.score,
-      title: piece.title
-    }
+    rating
   };
 }
 
@@ -137,6 +148,20 @@ export function renamePiece(id: string, title: string): SavedPiece | null {
   return updated;
 }
 
+export function ratePiece(id: string, rating: StarRatingValue): SavedPiece | null {
+  const piece = getPiece(id);
+  if (!piece) return null;
+
+  const updated: SavedPiece = {
+    ...piece,
+    rating,
+    updatedAt: new Date().toISOString()
+  };
+
+  upsertPiece(updated);
+  return updated;
+}
+
 function isSavedPiece(value: unknown): value is SavedPiece {
   if (!value || typeof value !== 'object') return false;
   const piece = value as Partial<SavedPiece>;
@@ -149,6 +174,14 @@ function isSavedPiece(value: unknown): value is SavedPiece {
     && typeof piece.score === 'object'
     && piece.score !== null
   );
+}
+
+function normalizeRating(value: unknown): StarRatingValue | undefined {
+  if (value === 1 || value === 2 || value === 3 || value === 4 || value === 5) {
+    return value;
+  }
+
+  return undefined;
 }
 
 function getLegacyStorageValue(): string | null {

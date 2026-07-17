@@ -5,8 +5,8 @@
   import PlaybackControls from '$lib/components/PlaybackControls.svelte';
   import ScoreRenderer from '$lib/components/ScoreRenderer.svelte';
   import { getMeasureStartUnits } from '$lib/music/playback';
-  import { getPiece } from '$lib/music/storage';
-  import type { SavedPiece } from '$lib/music/types';
+  import { getPiece, ratePiece } from '$lib/music/storage';
+  import type { SavedPiece, StarRatingValue } from '$lib/music/types';
 
   let piece: SavedPiece | null = null;
   let cursorUnits = 0;
@@ -29,6 +29,14 @@
     if (!piece) return;
     selectedMeasure = measure;
     cursorUnits = getMeasureStartUnits(piece.score, measure);
+  }
+
+  function updateRating(rating: StarRatingValue) {
+    if (!piece) return;
+    piece = ratePiece(piece.id, rating) ?? {
+      ...piece,
+      rating
+    };
   }
 </script>
 
@@ -65,9 +73,11 @@
       {piece}
       {selectedMeasure}
       {beginnerGuide}
+      rating={piece.rating}
       onCursorUpdate={updateCursor}
       onMeasureSelect={selectMeasure}
       onBeginnerGuideChange={(enabled) => (beginnerGuide = enabled)}
+      onRatingChange={updateRating}
     />
     <ScoreRenderer {piece} {cursorUnits} {selectedMeasure} {beginnerGuide} />
   {:else}

@@ -2,6 +2,7 @@
   import { Check, Copy, CopyPlus, ExternalLink, Pencil, Trash2 } from '@lucide/svelte';
   import type { SavedPiece } from '$lib/music/types';
   import { copyText } from '$lib/utils/clipboard';
+  import StarRating from './StarRating.svelte';
 
   export let piece: SavedPiece;
   export let onDuplicate: (id: string) => void;
@@ -41,6 +42,9 @@
     {:else}
       <h2>{piece.title}</h2>
     {/if}
+    <div class="card-rating">
+      <StarRating rating={piece.rating} label={`${piece.title} rating`} />
+    </div>
     {#if piece.composer}
       <p>{piece.composer}</p>
     {/if}
@@ -111,6 +115,10 @@
   p {
     color: var(--muted);
     margin: 0 0 14px;
+  }
+
+  .card-rating {
+    margin: 0 0 10px;
   }
 
   dl {
